@@ -18,4 +18,5 @@ def evaluar():
     return "Operación no permitida por políticas de seguridad", 400
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)
+    # CORRECCIÓN SAST: Escuchar solo en localhost para evitar exposición
+    app.run(host="127.0.0.1", port=8080)

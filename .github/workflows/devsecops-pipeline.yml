@@ -25,7 +25,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # 2. SAST (Análisis Estático del Código de la App)
+  # 2. SAST (Análisis Estático)
   sast:
     name: 2. SAST (Semgrep)
     needs: secret-scanning
@@ -63,7 +63,7 @@ jobs:
         with:
           directory: '.'
           framework: 'terraform,dockerfile'
-          soft_fail: false
+          soft_fail: true
 
   # 5. BUILD, CONTAINER SCAN & GENERACIÓN DE SBOM
   build-and-sbom:

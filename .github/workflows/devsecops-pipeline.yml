@@ -70,14 +70,19 @@ jobs:
     name: 5. Build, Container Scan & SBOM
     needs: [sast, sca, iac-security]
     runs-on: ubuntu-latest
+    outputs:
+      image_digest: ${{ steps.build-push.outputs.digest }}
+      lower_image: ${{ steps.prep.outputs.lower_image }}
     env:
       REGISTRY: ghcr.io
     steps:
       - uses: actions/checkout@v4
 
-      - name: Normalizar repositorio a minúsculas
+      - name: Preparar ruta de imagen en minúsculas
+        id: prep
         run: |
-          echo "IMAGE_NAME=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+          LOWER_REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          echo "lower_image=${REGISTRY}/${LOWER_REPO}" >> $GITHUB_OUTPUT
 
       - name: Iniciar sesión en GitHub Container Registry
         uses: docker/login-action@v3
@@ -90,20 +95,21 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ steps.prep.outputs.lower_image }}
           tags: type=sha
 
-      - name: Compilar Imagen Docker Local
+      - name: Compilar y Publicar Imagen en GHCR
+        id: build-push
         uses: docker/build-push-action@v5
         with:
           context: .
-          load: true
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
 
       - name: Generar SBOM con Syft
         uses: anchore/sbom-action@v0
         with:
-          image: ${{ steps.meta.outputs.tags }}
+          image: ${{ steps.prep.outputs.lower_image }}:sha-${{ github.sha }}
           format: cyclonedx-json
           output-file: 'sbom.cyclonedx.json'
 
@@ -116,41 +122,28 @@ jobs:
       - name: Escaneo de Imagen Docker con Trivy
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ steps.meta.outputs.tags }}
+          image-ref: ${{ steps.prep.outputs.lower_image }}:sha-${{ github.sha }}
           severity: 'CRITICAL'
           ignore-unfixed: true
           exit-code: '0'
-
-      - name: Publicar Imagen en GHCR
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
 
   # 6. FIRMA CRIPTOGRÁFICA DE CONTENEDORES
   sign-container:
     name: 6. Firma de Artefacto (Cosign Keyless)
     needs: build-and-sbom
     runs-on: ubuntu-latest
-    env:
-      REGISTRY: ghcr.io
     steps:
-      - name: Normalizar repositorio a minúsculas
-        run: |
-          echo "IMAGE_NAME=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
-
       - name: Instalar Cosign
         uses: sigstore/cosign-installer@v3.5.0
 
       - name: Iniciar sesión en GHCR
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Firmar Imagen mediante Sigstore (OIDC Keyless)
+      - name: Firmar Imagen mediante Sigstore por Digest
         run: |
-          IMAGE_REF="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}"
+          IMAGE_REF="${{ needs.build-and-sbom.outputs.lower_image }}@${{ needs.build-and-sbom.outputs.image_digest }}"
           cosign sign --yes "$IMAGE_REF"

@@ -98,12 +98,11 @@ jobs:
           images: ${{ steps.prep.outputs.lower_image }}
           tags: type=sha
 
-      - name: Compilar y Publicar Imagen en GHCR
-        id: build-push
+      - name: Compilar y Cargar Imagen Localmente
         uses: docker/build-push-action@v5
         with:
           context: .
-          push: true
+          load: true
           tags: ${{ steps.meta.outputs.tags }}
 
       - name: Generar SBOM con Syft
@@ -126,6 +125,14 @@ jobs:
           severity: 'CRITICAL'
           ignore-unfixed: true
           exit-code: '0'
+
+      - name: Publicar Imagen en GHCR
+        id: build-push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
 
   # 6. FIRMA CRIPTOGRÁFICA DE CONTENEDORES
   sign-container:
